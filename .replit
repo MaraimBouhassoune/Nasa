@@ -5,3 +5,39 @@ expertMode = true
 [nix]
 channel = "stable-25_05"
 packages = ["glibcLocales", "libxcrypt", "proj"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "AirGlobe App"
+
+[[workflows.workflow]]
+name = "AirGlobe App"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev:all"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[[ports]]
+localPort = 42327
+externalPort = 3000
