@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import DeckGL from '@deck.gl/react';
 import { _GlobeView as GlobeView, COORDINATE_SYSTEM } from '@deck.gl/core';
 import { TileLayer } from '@deck.gl/geo-layers';
@@ -24,7 +24,12 @@ const INITIAL_VIEW_STATE = {
 export function Globe({ onLocationSelect, selectedLocation }: GlobeProps) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   const [isDragging, setIsDragging] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleClick = useCallback((info: any, event: any) => {
     if (isDragging) return;
@@ -96,6 +101,12 @@ export function Globe({ onLocationSelect, selectedLocation }: GlobeProps) {
     })] : []),
   ];
 
+  if (!mounted) {
+    return <div className="relative w-full h-full bg-gray-900 flex items-center justify-center">
+      <div className="text-white">Loading globe...</div>
+    </div>;
+  }
+
   return (
     <div className="relative w-full h-full bg-gray-900">
       <DeckGL
@@ -111,6 +122,9 @@ export function Globe({ onLocationSelect, selectedLocation }: GlobeProps) {
         layers={layers}
         onViewStateChange={({ viewState }: any) => setViewState(viewState)}
         style={{ background: '#0a0a14' }}
+        parameters={{
+          clearColor: [0, 0, 0, 0]
+        }}
         getTooltip={({ object }: any) => {
           if (object) {
             return {
