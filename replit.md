@@ -131,3 +131,42 @@ Preferred communication style: Simple, everyday language.
 **Drizzle Kit:**
 - Database schema management and migrations
 - Type-safe database client generation
+
+## Replit Environment Setup
+
+### Development Configuration
+
+**Workflow Setup:**
+- Single workflow `AirGlobe App` runs both Python and Node.js servers
+- Command: `npm run dev:all` starts both servers in parallel
+- Frontend served on port 5000 (webview output)
+- Backend runs on localhost:8000 (proxied through Express)
+
+**Build & Deployment:**
+- Build command: `npm run build` (Vite + ESBuild)
+- Production command: `npm run start`
+- Deployment target: autoscale (stateless web app)
+
+**Host Configuration:**
+- Vite configured with `allowedHosts: true` for Replit proxy compatibility
+- Frontend uses 0.0.0.0:5000 for Replit webview
+- Backend uses localhost:8000 (internal only, proxied by Express)
+
+### Package Management
+
+**Node.js (v20):**
+- All dependencies installed via npm
+- package.json defines both runtime and dev dependencies
+
+**Python (v3.11):**
+- Dependencies managed via uv (pyproject.toml)
+- Virtual environment in .pythonlibs directory
+
+### Known Issues
+
+**Deck.gl WebGL Initialization:**
+- Warning: "Cannot read properties of null (reading 'luma')" 
+- This is a deck.gl 9.x/luma.gl 9.x initialization warning
+- Does not prevent app functionality
+- Related to WebGL context creation in deck.gl
+- Application continues to work despite the console error
