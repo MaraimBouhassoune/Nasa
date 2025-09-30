@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Globe } from "./components/Globe";
+import { GlobeCesium } from "./components/GlobeCesium";
 import { AirQualityPanel } from "./components/AirQualityPanel";
 import { CitySearch } from "./components/CitySearch";
 import { Button } from "./components/ui/button";
@@ -70,7 +70,7 @@ function App() {
 
         {/* Globe */}
         <div className="w-full h-full">
-          <Globe
+          <GlobeCesium
             onLocationSelect={handleLocationSelect}
             selectedLocation={selectedLocation}
           />
