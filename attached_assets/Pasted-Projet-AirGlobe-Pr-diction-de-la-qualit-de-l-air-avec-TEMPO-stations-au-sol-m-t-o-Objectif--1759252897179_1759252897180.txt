@@ -1,0 +1,323 @@
+Projet : AirGlobe — Prédiction de la qualité de l’air avec TEMPO + stations au sol + météo
+Objectif hackathon (NASA Space Apps 2025 – Défi 15) : Construire en 48h un MVP web qui affiche un globe 3D interactif. En cliquant une ville/pays, l’utilisateur voit :
+
+État actuel (polluants clés + indice),
+
+Prévisions 24–48 h,
+
+Conseils santé personnalisés (enfants, sportifs, asthmatiques),
+
+Sources citées (TEMPO, OpenAQ, IMERG/MERRA-2, etc.).
+
+0) Contraintes & livrables
+
+Livrable principal : web app full-stack déployée, avec globe 3D + API.
+
+Stack imposée :
+
+Frontend : React + Vite + deck.gl (GlobeView) + MapLibre GL (UI carte), Tailwind.
+
+Backend : Python FastAPI (ou Node Fastify si nécessaire), cache Redis (ou in-memory fallback).
+
+Data/ML : Python (xarray, pandas, scikit-learn), earthaccess/harmony-py (accès données NASA).
+
+Données principales (priorité) :
+
+NASA TEMPO : NO₂, O₃, PM, HCHO (NRT si dispo)
+
+Stations au sol : OpenAQ (global – temps réel/historique), AirNow (USA, si utile)
+
+Météo : IMERG (précipitations), MERRA-2 (vent, T°, humidité)
+
+Fond imagerie : NASA GIBS (via WMTS/tiles) pour couches rasters si nécessaire (bonus visuel)
+
+Fonctionnalités MVP obligatoires :
+
+Globe 3D cliquable (ville/pays) → popup avec : ACTUEL, PRÉVISION 24h, CONSEILS, SOURCES.
+
+API /api/airquality?lat&lon qui fusionne TEMPO + OpenAQ + météo.
+
+Alerte simple (badge rouge/orange/vert) + filtre profils santé.
+
+Historique 7 jours (mini sparkline).
+
+Bonus “jury killer” : mode “Science citoyenne” (feedback de ressenti), mode scénario (pluie/vent), mode offline de démo (cache JSON).
+
+1) Arborescence & outils
+/ (repo)
+  /frontend  (React + Vite + deck.gl + MapLibre + Tailwind)
+  /backend   (FastAPI + Python libs + jobs)
+  /infra     (Dockerfile(s), Procfile/Poetry, scripts)
+  /docs      (README, archi, API spec, .env.example)
+
+
+Replit : utiliser Nix + Poetry (backend) + Node 20 (frontend). Deux services (proxy via /api).
+
+2) Variables d’environnement (.env)
+EARTHDATA_USERNAME=
+EARTHDATA_PASSWORD=
+OPENAQ_BASE_URL=https://api.openaq.org/v2
+CACHE_TTL_SECONDS=900
+PORT=8000
+
+
+(Optionnel) Map tiles si nécessaire (mais privilégier GIBS libres).
+Si pas d’auth NASA requise pour certaines couches publiques, garder code tolérant.
+
+3) Backend (FastAPI)
+3.1 Dépendances (Python)
+fastapi, uvicorn, httpx, pydantic, pandas, numpy, xarray, rasterio, pyproj, scikit-learn,
+python-dateutil, earthaccess, harmony-py, cachetools (ou aioredis si Redis)
+
+3.2 Endpoints REST
+
+GET /health → {status:"ok"}
+
+GET /api/airquality?lat=..&lon=..&hours=24
+Retour (JSON) :
+
+{
+  "coord": {"lat":48.8566,"lon":2.3522},
+  "location_name": "Paris, FR",
+  "timestamp_iso": "2025-09-30T14:00:00Z",
+  "pollutants": {
+    "no2": {"value": 22, "unit":"µg/m³", "source":["TEMPO","OpenAQ"]},
+    "o3":  {"value": 64, "unit":"µg/m³", "source":["TEMPO"]},
+    "pm25":{"value": 18, "unit":"µg/m³", "source":["TEMPO","OpenAQ"]},
+    "hcho":{"value": 3.1, "unit":"ppb",   "source":["TEMPO"]}
+  },
+  "weather": {
+    "precip_mm": 0.6,
+    "wind_speed_ms": 4.2,
+    "temp_c": 21.5,
+    "humidity": 62,
+    "source":["IMERG","MERRA-2"]
+  },
+  "aqi": {"value": 72, "scale":"0-500", "category":"Moderate"},
+  "forecast_24h": [
+    {"t":"...Z","aqi":78},
+    {"t":"...Z","aqi":65}
+  ],
+  "advice": {
+    "general": "Limiter le sport intense en plein air.",
+    "profiles": {
+      "asthma": "Ayez votre inhalateur, éviter 16h-19h.",
+      "children": "Jeu modéré, privilégier matin.",
+      "elderly": "Éviter pics, hydratation."
+    }
+  },
+  "history_7d": [{"t":"...Z","aqi":...}, ...],
+  "provenance": {
+    "tempo": {"product":"NO2/O3/PM/HCHO","nrt":true},
+    "openaq": {"station_ids":[...]},
+    "meteo": {"imerg": true, "merra2": true}
+  }
+}
+
+
+GET /api/cities/search?q=paris → géocodage simple (OpenStreetMap Nominatim ou dataset local minimal).
+
+GET /api/tiles/tempo/{layer}/{z}/{x}/{y}.png (optionnel) → proxy de tuiles GIBS ou rendu raster simplifié (bonus).
+
+3.3 Logique de fusion (core)
+
+TEMPO : récupérer le pixel le plus proche (NO₂, O₃, PM, HCHO).
+
+OpenAQ : récupérer dernière mesure station la plus proche (<50 km).
+
+Météo (IMERG/MERRA-2) : pluie/vent/temp/HR sur la coordonnée.
+
+Fusion :
+
+Si TEMPO et OpenAQ existent → moyenne pondérée (pondérer station locale + rayon).
+
+Sinon fallback sur la source dispo.
+
+AQI : convertir en catégories (0–500). Utiliser barème simple (documenter).
+
+Cache : clé par lat,lon arrondies à 2 décimales (≈1–2 km). TTL 15 min.
+
+3.4 Prévision (ML minimal)
+
+Données : 7 derniers jours (heure par heure si dispo).
+
+Features : valeurs t-1, t-2, pluie, vent, T°, HR.
+
+Modèle : LinearRegression ou RandomForestRegressor (si data suffisante).
+
+Sortie : AQI prédit H+1…H+24.
+
+Fallback : si pas d’historique suffisant → extrapolation naïve + météo (vent↑ → AQI↓ ; pluie↑ → PM2.5↓).
+
+3.5 Qualité & tests
+
+Tests unitaires : parse TEMPO/OpenAQ, fusion, AQI, prévision.
+
+Tests d’API : 2–3 villes (Paris, New York, Mexico).
+
+Gestion erreurs : timeouts HTTPX, NRT indispos → fallback + provenance mis à jour.
+
+4) Frontend (React + Vite)
+4.1 Dépendances
+react, react-dom, vite, tailwindcss, maplibre-gl, deck.gl, @deck.gl/core, @deck.gl/layers, @deck.gl/react
+
+4.2 Écran principal
+
+Globe 3D (deck.gl GlobeView) centré monde, zoom/rotation fluide.
+
+Clic sur globe (ou recherche ville) → Sheet/Drawer latéral :
+
+Carte mini (MapLibre) + pin
+
+Badges : AQI + catégorie (vert/jaune/orange/rouge)
+
+Polluants (NO₂, O₃, PM2.5, HCHO) avec unités & sources
+
+Météo (vent, pluie, T°, HR)
+
+Prévision 24h (mini graphique linéaire)
+
+Historique 7j (sparkline)
+
+Conseils santé (onglets profils : enfants, asthme, sportifs, seniors)
+
+Sources (logos NASA TEMPO / OpenAQ / IMERG/MERRA-2)
+
+Header : logo AirGlobe, sélecteur profil santé, bouton “Mode Scénario” (bonus).
+
+Footer : crédits NASA Space Apps + disclaimers.
+
+4.3 Couleurs & UX
+
+Palette AQI standard (vert→rouge), dark mode natif.
+
+Accessibilité : contrastes, labels ARIA, tailles 14–16+.
+
+Localisation : FR/EN/ES (JSON i18n simple).
+
+5) Données & intégrations — Détails d’accès
+
+Implémenter des utilitaires backend pour chaque source.
+
+TEMPO (NASA) : via earthaccess (CMR/Earthdata) ou Harmony pour accéder aux produits NRT * (NO₂/O₃/PM/HCHO).
+
+Étapes : auth EDL → requête CMR → lien Zarr/NetCDF → extraire pixel (lat/lon).
+
+OpenAQ : GET /v2/measurements?coordinates={lat},{lon}&radius=50000&limit=50&parameter[]=pm25&parameter[]=no2...
+
+IMERG (précipitations) : via Earthdata Search + earthaccess (produit Early/Late si NRT) → extraire cumul récent sur coordonnée.
+
+MERRA-2 (vent/temp/humidité) : reanalysis (1h/3h/6h), récupérer proche temps réel si pratique.
+
+GIBS (optionnel visuel raster) : intégration WMTS/XYZ directement en front (si temps).
+
+Important : documenter dans /docs/SOURCES.md le produit exact (ID CMR, latence, variables).
+
+6) Scripts & tâches (Makefile-like, ou npm scripts)
+
+backend:dev → uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+frontend:dev → vite
+
+seed:cities → crée un petit JSON villes (Top 500) pour recherche offline.
+
+test → lance Pytests + tests d’API (Smoke tests sur 3 villes)
+
+build → build frontend + empaqueter backend (serve statique + proxy /api)
+
+7) Critères d’acceptation (obligatoires)
+
+Globe 3D : rotation fluide, clic → ouvre panneau d’info.
+
+/api/airquality renvoie un JSON complet (polluants, météo, AQI, forecast, history, provenance).
+
+3 villes démos pré-configurées (Paris, New York, Mexico City) avec résultats non vides.
+
+Conseils santé affichés et changent selon l’AQI.
+
+Sources citées dans l’UI et dans la réponse API (provenance).
+
+Fallbacks gérés (si TEMPO indispo → OpenAQ + météo).
+
+README clair : lancer localement + démo (URL Replit), limites connues.
+
+8) Bonus (si temps)
+
+Science citoyenne : POST /api/feedback (symptômes, ressenti, sport prévu) → stocker anonymisé.
+
+Mode scénario : sliders vent/pluie pour voir l’effet sur l’AQI prédit.
+
+Alertes e-mail : abonnement par ville (seulement si simple).
+
+Tuiles GIBS superposées en globe (effet “wow NASA”).
+
+Export : bouton “Partager cette vue” (URL partageable avec lat,lon,ts).
+
+9) Plan de réalisation (48h)
+
+Jour 1 (AM)
+
+Bootstraps : repos, .env, FastAPI squelette, React+Vite, Tailwind, deck.gl Globe.
+
+Endpoint /health, page globe affichée.
+
+OpenAQ util + endpoint base /api/airquality (sans TEMPO).
+
+Jour 1 (PM)
+
+Intégrer TEMPO via earthaccess/harmony (une variable d’abord : NO₂).
+
+Fusion TEMPO+OpenAQ + calcul AQI + météo simple (placeholder).
+
+UI panneau d’info + badges AQI + historique (mock si besoin).
+
+Jour 2 (AM)
+
+Ajouter météo réelle (IMERG pluie, MERRA-2 vent/T°/HR).
+
+Prévision 24h (régression simple), sparkline, conseils santé par profil.
+
+Polish UI/UX + i18n FR/EN.
+
+Jour 2 (PM)
+
+Tests, fallback, provenance, pages docs.
+
+Préparer 3 “scènes de démo” (liens directs villes).
+
+Répétition du pitch + script de démo.
+
+10) Documentation à produire
+
+README.md (installation, run, build, démo)
+
+docs/ARCHI.md (schémas flux données, modules)
+
+docs/API.md (spéc JSON, exemples)
+
+docs/SOURCES.md (datasets et produits exacts)
+
+docs/LIMITES.md (latences, couvertures, hypothèses AQI)
+
+11) Qualité & DX
+
+Typage Pydantic des réponses.
+
+Lint rapide (ruff/black).
+
+Logs structurés (uvicorn + contexte requête).
+
+Erreurs utilisateur claires en front (toasts).
+
+12) Exemple d’user story (acceptance)
+
+En tant que parent d’un enfant asthmatique à Paris,
+
+je veux cliquer Paris sur le globe,
+
+afin de voir si demain 16-19h il vaut mieux éviter le foot.
+
+Critères : j’obtiens AQI actuel + prévision H+24, avec conseil “asthma” adapté.
+
+Merci d’exécuter ce plan pas à pas. S’il manque un produit TEMPO accessible en NRT pendant le hackathon, conserver un mode fallback (OpenAQ + météo) tout en affichant la provenance et l’état des sources.
+Objectif : un MVP stable, visuel (globe), axé santé et action, avec sources NASA clairement citées.
