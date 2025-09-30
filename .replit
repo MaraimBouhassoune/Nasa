@@ -41,3 +41,8 @@ externalPort = 8000
 [[ports]]
 localPort = 42327
 externalPort = 3000
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "python server/main.py & npm run start"]
+build = ["npm", "run", "build"]
